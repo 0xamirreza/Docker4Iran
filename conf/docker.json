@@ -1,0 +1,37 @@
+# Arvancloud
+{
+    "insecure-registries" : ["https://docker.arvancloud.ir"],
+    "registry-mirrors": ["https://docker.arvancloud.ir"]
+}
+
+# Manageit
+{
+    "registry-mirrors": ["https://docker.manageit.ir"]
+}
+
+# Docker.ir
+{
+    "registry-mirrors": ["https://registry.docker.ir"]
+}
+
+# Docker.host
+{
+    "registry-mirrors": ["https://docker.host:5000"]
+}
+
+# Runflare 
+{
+    "registry-mirrors": ["https://mirror-docker.runflare.com"]
+}
+
+# Iranserver
+{
+    "registry-mirrors": ["https://docker.iranserver.com"]
+}
+
+# Haiocloud
+{
+    "registry-mirrors": ["https://docker.haiocloud.com"]
+}
+
+#
