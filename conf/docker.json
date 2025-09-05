@@ -14,6 +14,11 @@
     "registry-mirrors": ["https://registry.docker.ir"]
 }
 
+# Kernel.ir
+{
+    "registry-mirrors": ["https://docker.kernel.ir"]
+}
+
 # Docker.host
 {
     "registry-mirrors": ["https://docker.host:5000"]
