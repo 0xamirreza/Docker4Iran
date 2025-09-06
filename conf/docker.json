@@ -24,9 +24,20 @@
     "registry-mirrors": ["https://docker.host:5000"]
 }
 
+# Mobinhost
+{
+    "insecure-registries" : ["https://docker.mobinhost.com"],
+    "registry-mirrors": ["https://docker.mobinhost.com"]
+}
+
 # Runflare 
 {
     "registry-mirrors": ["https://mirror-docker.runflare.com"]
+}
+
+# Focker 
+{
+    "registry-mirrors": ["https://focker.ir"]
 }
 
 # Iranserver
