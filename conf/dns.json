@@ -20,6 +20,16 @@
       "secondary": "10.202.10.11",
       "description": "Radar DNS service"
     },
+    "DNSPro": {
+      "primary": "87.107.110.109",
+      "secondary": "87.107.110.110",
+      "description": "DNSPro DNS service"
+    },
+    "DynX": {
+      "primary": "10.70.95.150",
+      "secondary": "10.70.95.162",
+      "description": "DynX DNS service"
+    },
     "Electro": {
       "primary": "78.157.42.100",
       "secondary": "78.157.42.101",
