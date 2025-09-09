@@ -115,6 +115,10 @@ sudo /home/$USER/.local/bin/0xdocker
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
+## ✅ درآینده
+
+- [ ] 🇮🇷 افزودن قابلیت انتخاب هوشمند میرور ریپوزیتوری برای توزیع‌های داخل ایران (Smart Mirror)  
+- [ ] 🐧 پشتیبانی از انتخاب خودکار سیستم‌عامل‌های مختلف لینوکسی (Cross-Distribution)  
 
 ### 📄 مجوز
 
