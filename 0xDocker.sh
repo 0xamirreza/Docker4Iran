@@ -248,15 +248,140 @@ function container_management() {
             fi
             ;;
         6)
-            docker ps --format "table {{.Names}}\t{{.Status}}"
-            read -p "Enter container name to view logs: " container_name
-            read -p "Number of lines (default 50): " lines
-            lines=${lines:-50}
-            docker logs --tail "$lines" -f "$container_name"
+            container_logs_viewer
             ;;
         7) return ;;
         *) log_warning "Invalid option" ;;
     esac
+}
+
+function view_live_logs() {
+    local container_name="$1"
+    local extra_flags="$2"  # For timestamps (-t)
+    
+    echo -e "\n📋 Starting live logs for container: $container_name"
+    echo "Press Ctrl+C to stop following logs and return to menu..."
+    echo "=========================================="
+    
+    # Set trap to handle Ctrl+C gracefully
+    trap 'echo -e "\n🛑 Stopping live logs..."; return 0' INT
+    
+    # Run docker logs with the provided flags
+    docker logs -f $extra_flags "$container_name"
+    
+    # Remove trap after logs finish
+    trap - INT
+}
+
+function container_logs_viewer() {
+    echo -e "\n=== Container Logs Viewer ==="
+    
+    # Get all containers (running and stopped)
+    local containers=$(docker ps -a --format "{{.Names}}" 2>/dev/null)
+    
+    if [ -z "$containers" ]; then
+        log_warning "No containers found"
+        return
+    fi
+    
+    echo "Available containers:"
+    echo "===================="
+    local i=1
+    local container_array=()
+    while IFS= read -r container; do
+        if [ -n "$container" ]; then
+            local status=$(docker ps --filter "name=^${container}$" --format "{{.Status}}" 2>/dev/null)
+            if [ -n "$status" ]; then
+                echo "$i. $container (Running: $status)"
+            else
+                echo "$i. $container (Stopped)"
+            fi
+            container_array+=("$container")
+            ((i++))
+        fi
+    done <<< "$containers"
+    
+    echo ""
+    read -p "Enter container number or name: " choice
+    
+    # Handle numeric choice
+    if [[ "$choice" =~ ^[0-9]+$ ]]; then
+        if [ "$choice" -ge 1 ] && [ "$choice" -le "${#container_array[@]}" ]; then
+            local selected_container="${container_array[$((choice-1))]}"
+        else
+            log_error "Invalid container number"
+            return
+        fi
+    else
+        # Handle name choice
+        local selected_container="$choice"
+        # Verify container exists
+        if ! docker ps -a --format "{{.Names}}" | grep -q "^${selected_container}$"; then
+            log_error "Container '$selected_container' not found"
+            return
+        fi
+    fi
+    
+    echo ""
+    echo "=== Log Options for Container: $selected_container ==="
+    echo "1. Live logs (follow mode) - Press Ctrl+C to stop"
+    echo "2. Last 50 lines"
+    echo "3. Last 100 lines"
+    echo "4. Last 500 lines"
+    echo "5. Custom number of lines"
+    echo "6. Logs with timestamps"
+    echo "7. Live logs with timestamps"
+    echo "8. Back to container management"
+    
+    read -p "Choose log option: " log_choice
+    
+    case $log_choice in
+        1)
+            view_live_logs "$selected_container"
+            ;;
+        2)
+            echo -e "\n📋 Last 50 lines for container: $selected_container"
+            echo "=========================================="
+            docker logs --tail 50 "$selected_container"
+            ;;
+        3)
+            echo -e "\n📋 Last 100 lines for container: $selected_container"
+            echo "=========================================="
+            docker logs --tail 100 "$selected_container"
+            ;;
+        4)
+            echo -e "\n📋 Last 500 lines for container: $selected_container"
+            echo "=========================================="
+            docker logs --tail 500 "$selected_container"
+            ;;
+        5)
+            read -p "Enter number of lines to show: " lines
+            if [[ "$lines" =~ ^[0-9]+$ ]]; then
+                echo -e "\n📋 Last $lines lines for container: $selected_container"
+                echo "=========================================="
+                docker logs --tail "$lines" "$selected_container"
+            else
+                log_error "Invalid number of lines"
+            fi
+            ;;
+        6)
+            echo -e "\n📋 Last 50 lines with timestamps for container: $selected_container"
+            echo "=========================================="
+            docker logs --tail 50 -t "$selected_container"
+            ;;
+        7)
+            view_live_logs "$selected_container" "-t"
+            ;;
+        8)
+            return
+            ;;
+        *)
+            log_warning "Invalid option"
+            ;;
+    esac
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 function image_management() {
@@ -469,9 +594,10 @@ function show_main_menu() {
         "Container Management" \
         "Image Management" \
         "Docker Compose Management" \
+        "Container Logs Viewer" \
         "Remove All Docker Resources" \
         "Full Docker Cleanup" \
-        "View Logs" \
+        "View 0xDocker Logs" \
         "Exit"; do
 
         case $REPLY in
@@ -486,17 +612,18 @@ function show_main_menu() {
             9) container_management; break ;;
             10) image_management; break ;;
             11) docker_compose_management; break ;;
-            12) remove_all; break ;;
-            13) full_cleanup; break ;;
-            14)
+            12) container_logs_viewer; break ;;
+            13) remove_all; break ;;
+            14) full_cleanup; break ;;
+            15)
                 if [ -f "$LOG_FILE" ]; then
-                    echo -e "\n=== Recent Logs ==="
+                    echo -e "\n=== Recent 0xDocker Logs ==="
                     tail -50 "$LOG_FILE"
                 else
-                    log_info "No log file found"
+                    log_info "No 0xDocker log file found"
                 fi
                 break ;;
-            15) echo "Exiting..."; exit 0 ;;
+            16) echo "Exiting..."; exit 0 ;;
             *) echo "Invalid option. Try again."; break ;;
         esac
     done

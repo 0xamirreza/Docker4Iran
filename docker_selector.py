@@ -25,43 +25,26 @@ class InteractiveRegistrySelector:
     def _load_registry_config(self) -> List[Dict]:
         """Load registry mirror configuration from docker.json file"""
         try:
-            registries = []
             with open(self.registry_config_path, 'r') as f:
-                content = f.read()
+                config = json.load(f)
+                registry_mirrors = config.get('registry_mirrors', {})
                 
-            # Parse multiple JSON objects separated by comments
-            json_blocks = []
-            current_block = ""
-            
-            for line in content.split('\n'):
-                line = line.strip()
-                if line.startswith('#') or not line:
-                    if current_block.strip():
-                        json_blocks.append(current_block)
-                        current_block = ""
-                else:
-                    current_block += line + '\n'
-            
-            if current_block.strip():
-                json_blocks.append(current_block)
-            
-            for i, block in enumerate(json_blocks):
-                try:
-                    registry_config = json.loads(block)
-                    if 'registry-mirrors' in registry_config:
-                        for mirror in registry_config['registry-mirrors']:
-                            registries.append({
-                                'name': f'Registry_{i+1}',
-                                'mirror': mirror,
-                                'insecure': mirror in registry_config.get('insecure-registries', [])
-                            })
-                except json.JSONDecodeError:
-                    continue
+            registries = []
+            for name, mirror_info in registry_mirrors.items():
+                registries.append({
+                    'name': name,
+                    'mirror': mirror_info['mirror'],
+                    'insecure': mirror_info.get('insecure', False),
+                    'description': mirror_info.get('description', '')
+                })
                     
             return registries
             
         except FileNotFoundError:
             print(f"❌ Registry config file not found: {self.registry_config_path}")
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print(f"❌ Invalid JSON in registry config file: {self.registry_config_path}")
             sys.exit(1)
         except Exception as e:
             print(f"❌ Error loading registry config: {e}")
@@ -123,13 +106,17 @@ class InteractiveRegistrySelector:
         """Test a single registry mirror"""
         mirror = registry['mirror']
         name = registry['name']
+        description = registry.get('description', '')
         
         print(f"🔍 Testing {name}: {mirror}")
+        if description:
+            print(f"   📝 {description}")
         
         results = {
             'name': name,
             'mirror': mirror,
             'insecure': registry['insecure'],
+            'description': description,
             'connectivity_success': False,
             'connectivity_time': float('inf'),
             'hub_success': False,
@@ -255,15 +242,19 @@ class InteractiveRegistrySelector:
             
             return None
         
-        print(f"{'#':<3} {'Registry':<15} {'Mirror':<35} {'Conn(s)':<8} {'Hub(s)':<8} {'Score':<8}")
-        print("-" * 85)
+        print(f"{'#':<3} {'Registry':<12} {'Mirror':<30} {'Conn(s)':<8} {'Hub(s)':<8} {'Score':<8}")
+        print("-" * 80)
         
         for i, result in enumerate(working_results, 1):
             conn_time = f"{result['connectivity_time']:.2f}" if result['connectivity_success'] else "Failed"
             hub_time = f"{result['hub_time']:.2f}" if result['hub_success'] else "Failed"
             score = f"{result['total_score']:.2f}" if result['status'] == 'Working' else "N/A"
             
-            print(f"{i:<3} {result['name']:<15} {result['mirror']:<35} {conn_time:<8} {hub_time:<8} {score:<8}")
+            print(f"{i:<3} {result['name']:<12} {result['mirror']:<30} {conn_time:<8} {hub_time:<8} {score:<8}")
+            
+            # Show description if available
+            if result.get('description'):
+                print(f"    └─ {result['description']}")
         
         # Show failed ones
         failed_results = [r for r in results if r['status'] != 'Working']
@@ -386,7 +377,7 @@ def main():
     # Check if running as root or with sudo
     if os.geteuid() != 0:
         print("❌ This script requires root privileges to modify Docker daemon configuration")
-        print("Please run with: sudo python3 registry_selector_interactive.py")
+        print("Please run with: sudo python3 docker_selector.py")
         return 1
     
     try:

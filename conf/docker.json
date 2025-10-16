@@ -1,53 +1,54 @@
-# Arvancloud
 {
-    "insecure-registries" : ["https://docker.arvancloud.ir"],
-    "registry-mirrors": ["https://docker.arvancloud.ir"]
+  "registry_mirrors": {
+    "Arvancloud": {
+      "mirror": "https://docker.arvancloud.ir",
+      "insecure": true,
+      "description": "Arvancloud Docker registry mirror"
+    },
+    "Manageit": {
+      "mirror": "https://docker.manageit.ir",
+      "insecure": false,
+      "description": "Manageit Docker registry mirror"
+    },
+    "Docker.ir": {
+      "mirror": "https://registry.docker.ir",
+      "insecure": false,
+      "description": "Docker.ir registry mirror"
+    },
+    "Kernel.ir": {
+      "mirror": "https://docker.kernel.ir",
+      "insecure": false,
+      "description": "Kernel.ir Docker registry mirror"
+    },
+    "Docker.host": {
+      "mirror": "https://docker.host:5000",
+      "insecure": false,
+      "description": "Docker.host registry mirror"
+    },
+    "Mobinhost": {
+      "mirror": "https://docker.mobinhost.com",
+      "insecure": true,
+      "description": "Mobinhost Docker registry mirror"
+    },
+    "Runflare": {
+      "mirror": "https://mirror-docker.runflare.com",
+      "insecure": false,
+      "description": "Runflare Docker registry mirror"
+    },
+    "Focker": {
+      "mirror": "https://focker.ir",
+      "insecure": false,
+      "description": "Focker Docker registry mirror"
+    },
+    "Iranserver": {
+      "mirror": "https://docker.iranserver.com",
+      "insecure": false,
+      "description": "Iranserver Docker registry mirror"
+    },
+    "Haiocloud": {
+      "mirror": "https://docker.haiocloud.com",
+      "insecure": false,
+      "description": "Haiocloud Docker registry mirror"
+    }
+  }
 }
-
-# Manageit
-{
-    "registry-mirrors": ["https://docker.manageit.ir"]
-}
-
-# Docker.ir
-{
-    "registry-mirrors": ["https://registry.docker.ir"]
-}
-
-# Kernel.ir
-{
-    "registry-mirrors": ["https://docker.kernel.ir"]
-}
-
-# Docker.host
-{
-    "registry-mirrors": ["https://docker.host:5000"]
-}
-
-# Mobinhost
-{
-    "insecure-registries" : ["https://docker.mobinhost.com"],
-    "registry-mirrors": ["https://docker.mobinhost.com"]
-}
-
-# Runflare 
-{
-    "registry-mirrors": ["https://mirror-docker.runflare.com"]
-}
-
-# Focker 
-{
-    "registry-mirrors": ["https://focker.ir"]
-}
-
-# Iranserver
-{
-    "registry-mirrors": ["https://docker.iranserver.com"]
-}
-
-# Haiocloud
-{
-    "registry-mirrors": ["https://docker.haiocloud.com"]
-}
-
-#

@@ -144,13 +144,13 @@ function optimize_docker_registry() {
     cd "$SCRIPT_DIR"
     
     # Check if registry selector script exists
-    if [ ! -f "$SCRIPT_DIR/mirror_selector.py" ]; then
-        log_error "Registry selector script not found: $SCRIPT_DIR/mirror_selector.py"
+    if [ ! -f "$SCRIPT_DIR/docker_selector.py" ]; then
+        log_error "Registry selector script not found: $SCRIPT_DIR/docker_selector.py"
         return 1
     fi
     
     # Make registry selector executable
-    chmod +x mirror_selector.py
+    chmod +x docker_selector.py
     
     # Check if we have Python3 and required modules
     if ! command -v python3 &> /dev/null; then
@@ -173,11 +173,11 @@ function optimize_docker_registry() {
     echo ""
     
     # Run the registry selector
-    if python3 mirror_selector.py; then
+    if python3 docker_selector.py; then
         log_success "Docker registry mirror optimization completed!"
     else
         log_warning "Registry mirror optimization failed or was skipped"
-        log_info "You can run it manually later with: sudo python3 mirror_selector.py"
+        log_info "You can run it manually later with: sudo python3 docker_selector.py"
     fi
     
     echo ""
@@ -190,9 +190,9 @@ function run_docker_mirror_registry() {
     cd "$SCRIPT_DIR"
     
     # Check if registry selector script exists
-    if [ ! -f "$SCRIPT_DIR/mirror_selector.py" ]; then
-        log_error "Mirror selector script not found: $SCRIPT_DIR/mirror_selector.py"
-        log_info "Please ensure mirror_selector.py is in the same directory as this script"
+    if [ ! -f "$SCRIPT_DIR/docker_selector.py" ]; then
+        log_error "Mirror selector script not found: $SCRIPT_DIR/docker_selector.py"
+        log_info "Please ensure docker_selector.py is in the same directory as this script"
         return 1
     fi
     
@@ -227,7 +227,7 @@ function run_docker_mirror_registry() {
     fi
     
     # Make registry selector executable
-    chmod +x mirror_selector.py
+    chmod +x docker_selector.py
     
     # Run the registry selector with sudo
     echo ""
@@ -235,7 +235,7 @@ function run_docker_mirror_registry() {
     echo "This will test all available Docker registry mirrors and let you choose the best one."
     echo ""
     
-    if sudo python3 mirror_selector.py; then
+    if sudo python3 docker_selector.py; then
         log_success "Docker Mirror Registry configuration completed!"
     else
         log_warning "Docker Mirror Registry configuration failed or was cancelled"
@@ -772,7 +772,7 @@ function show_menu() {
                 echo "  • Run interactively: 0xdocker"
                 echo ""
                 log_info "You can reconfigure Docker registry mirrors anytime with:"
-                echo "  • Run: sudo python3 mirror_selector.py"
+                echo "  • Run: sudo python3 docker_selector.py"
                 echo "  • Or use menu option 5"
                 read -p "Press Enter to continue..."
                 ;;
