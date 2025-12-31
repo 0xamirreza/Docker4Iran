@@ -190,6 +190,11 @@ class InteractiveRegistrySelector:
                 if selected_mirror['mirror'] not in daemon_config['insecure-registries']:
                     daemon_config['insecure-registries'].append(selected_mirror['mirror'])
             
+            # Ensure the directory exists
+            daemon_dir = os.path.dirname(self.daemon_json_path)
+            if not os.path.exists(daemon_dir):
+                subprocess.run(['mkdir', '-p', daemon_dir], check=True)
+
             # Write daemon.json
             with open(self.daemon_json_path, 'w') as f:
                 json.dump(daemon_config, f, indent=2)

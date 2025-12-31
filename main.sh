@@ -75,8 +75,15 @@ function check_requirements() {
     # Check Python3 availability
     if ! command -v python3 &> /dev/null; then
         log_warning "Python3 not found. Installing..."
-        sudo apt-get update
-        sudo apt-get install -y python3 python3-pip
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y python3 python3-pip
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -Syu --noconfirm python python-pip
+        else
+            log_error "Could not find a supported package manager (apt-get, pacman) to install Python3."
+            exit 1
+        fi
     fi
     
     # Check if DNS selector script exists
@@ -162,8 +169,16 @@ function optimize_docker_registry() {
     # Install required Python modules
     log_info "Installing required Python modules..."
     pip3 install requests >/dev/null 2>&1 || {
-        log_warning "pip3 install failed, trying with apt..."
-        apt-get install -y python3-requests
+        log_warning "pip3 install failed, trying with system package manager..."
+        if command -v apt-get &> /dev/null; then
+            log_info "Attempting to install with apt..."
+            apt-get install -y python3-requests
+        elif command -v pacman &> /dev/null; then
+            log_info "Attempting to install with pacman..."
+            pacman -S --noconfirm python-requests
+        else
+            log_error "Could not install python-requests. No supported package manager found."
+        fi
     }
     
     # Run registry mirror optimization
@@ -220,9 +235,17 @@ function run_docker_mirror_registry() {
     if ! python3 -c "import requests" >/dev/null 2>&1; then
         log_info "Installing required Python modules..."
         pip3 install requests >/dev/null 2>&1 || {
-            log_warning "pip3 install failed, trying with apt..."
-            sudo apt-get update
-            sudo apt-get install -y python3-requests
+            log_warning "pip3 install failed, trying with system package manager..."
+            if command -v apt-get &> /dev/null; then
+                log_info "Attempting to install with apt..."
+                sudo apt-get update
+                sudo apt-get install -y python3-requests
+            elif command -v pacman &> /dev/null; then
+                log_info "Attempting to install with pacman..."
+                sudo pacman -S --noconfirm python-requests
+            else
+                log_error "Could not install python-requests. No supported package manager found."
+            fi
         }
     fi
     
@@ -275,18 +298,47 @@ function install_docker_as_root() {
         exit 1
     fi
 
-    # Set DISTRO based on ID
+    # Set DISTRO based on ID or ID_LIKE
     if [[ "$DISTRO_ID" == "ubuntu" ]]; then
         DISTRO="ubuntu"
     elif [[ "$DISTRO_ID" == "debian" ]]; then
         DISTRO="debian"
+    elif [[ "$DISTRO_ID" == "manjaro" ]] || [[ "$DISTRO_ID" == "arch" ]] || [[ "$ID_LIKE" == "arch" ]]; then
+        DISTRO="arch"
     else
         log_error "Unsupported distribution: $DISTRO_ID ($DISTRO_NAME)"
-        echo "This script only supports Ubuntu and Debian."
+        echo "This script only supports Debian, Ubuntu, and Arch-based distributions."
         exit 1
     fi
 
     log_info "Detected distribution: $DISTRO ($DISTRO_NAME)"
+
+    if [ "$DISTRO" = "arch" ]; then
+        log_info "Installing Docker for Arch Linux..."
+        pacman -Syu --noconfirm docker docker-compose
+
+        log_info "Starting and enabling Docker service..."
+        systemctl start docker
+        systemctl enable docker
+
+        if [ "$SUDO_USER" ]; then
+            log_info "Adding user $SUDO_USER to docker group..."
+            usermod -aG docker "$SUDO_USER"
+            log_warning "Please log out and back in for group changes to take effect"
+        fi
+
+        log_info "Verifying Docker installation..."
+        if docker --version && docker compose version; then
+            log_success "Docker installation completed successfully!"
+            docker --version
+            docker compose version
+            optimize_docker_registry
+        else
+            log_error "Docker installation verification failed"
+            exit 1
+        fi
+        return
+    fi
 
     # Install lsb-release if not available
     if ! command -v lsb_release &>/dev/null; then
@@ -484,7 +536,11 @@ function uninstall_docker_as_root() {
         systemctl stop docker containerd || true
         
         log_info "Removing Docker packages..."
-        apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras || true
+        if command -v apt-get &> /dev/null; then
+            apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras || true
+        elif command -v pacman &> /dev/null; then
+            pacman -Rns --noconfirm docker docker-compose || true
+        fi
         
         log_info "Removing Docker data..."
         rm -rf /var/lib/docker

@@ -10,6 +10,7 @@ import time
 import subprocess
 import sys
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple, Optional
 
@@ -259,8 +260,70 @@ class DNSSelector:
                 print("\n\n⏭️  DNS selection cancelled.")
                 return None
     
+    def _is_systemd_resolved_active(self) -> bool:
+        """Check if systemd-resolved is active and running."""
+        if not shutil.which("resolvectl"): 
+            return False
+        try:
+            status_output = subprocess.check_output(['resolvectl', 'status'], text=True, stderr=subprocess.DEVNULL)
+            return "systemd-resolved is running" in status_output
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
     def apply_dns_settings(self, primary_dns: str, secondary_dns: str) -> bool:
-        """Apply DNS settings to /etc/resolv.conf"""
+        """Apply DNS settings, detecting whether to use systemd-resolved or /etc/resolv.conf."""
+        if self._is_systemd_resolved_active():
+            print("ℹ️ systemd-resolved detected. Applying DNS settings via resolvectl...")
+            return self._apply_dns_systemd_resolved(primary_dns, secondary_dns)
+        else:
+            print("ℹ️ Applying DNS settings via /etc/resolv.conf...")
+            return self._apply_dns_resolv_conf(primary_dns, secondary_dns)
+
+    def _apply_dns_systemd_resolved(self, primary_dns: str, secondary_dns: str) -> bool:
+        """Apply DNS settings using systemd-resolved by creating a config file."""
+        dns_servers = [primary_dns]
+        if secondary_dns:
+            dns_servers.append(secondary_dns)
+        
+        conf_dir = "/etc/systemd/resolved.conf.d"
+        conf_file_path = os.path.join(conf_dir, "99-docker4iran-dns.conf")
+        conf_content = f"[Resolve]\nDNS={' '.join(dns_servers)}\n"
+        
+        try:
+            print(f"Creating systemd-resolved config file: {conf_file_path}")
+            # Create directory if it doesn't exist
+            subprocess.run(['sudo', 'mkdir', '-p', conf_dir], check=True)
+            
+            # Write new DNS settings to a temporary file
+            tmp_conf_path = '/tmp/99-docker4iran-dns.conf'
+            with open(tmp_conf_path, 'w') as f:
+                f.write(conf_content)
+            
+            # Move the temporary file to the final destination with sudo
+            subprocess.run(['sudo', 'cp', tmp_conf_path, conf_file_path], check=True)
+            subprocess.run(['rm', tmp_conf_path], check=True)
+            
+            # Restart systemd-resolved to apply changes
+            print("Restarting systemd-resolved service...")
+            subprocess.run(['sudo', 'systemctl', 'restart', 'systemd-resolved'], check=True)
+            
+            print(f"✅ DNS settings applied successfully!")
+            print(f"   Primary DNS: {primary_dns}")
+            if secondary_dns:
+                print(f"   Secondary DNS: {secondary_dns}")
+            
+            return True
+
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to apply DNS settings for systemd-resolved: {e}")
+            print(f"   Stderr: {e.stderr}")
+            return False
+        except Exception as e:
+            print(f"❌ An unexpected error occurred: {e}")
+            return False
+
+    def _apply_dns_resolv_conf(self, primary_dns: str, secondary_dns: str) -> bool:
+        """Apply DNS settings to /etc/resolv.conf (legacy method)."""
         try:
             resolv_conf_content = f"nameserver {primary_dns}\n"
             if secondary_dns:
