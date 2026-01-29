@@ -35,6 +35,11 @@
       "insecure": false,
       "description": "Runflare Docker registry mirror"
     },
+    "Jamko": {
+      "mirror": "https://docker.jamko.ir",
+      "insecure": false,
+      "description": "Focker Docker registry mirror"
+    },
     "Focker": {
       "mirror": "https://focker.ir",
       "insecure": false,
