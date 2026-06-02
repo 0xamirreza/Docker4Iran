@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0] - 2026-06-02
+
+### Changed
+- Converted DNS and Docker registry selector logic into the single main Bash script.
+- Updated the main installer to run embedded Bash workflows for DNS and registry actions.
+- Removed runtime and package dependency checks that are no longer needed.
+
+### Removed
+- Removed standalone selector files that were replaced by the Bash implementation.
+
 ## [1.3.0] - 2026-01-01
 
 ### Added
@@ -8,7 +18,7 @@
 - **systemd-resolved Support**: DNS configuration is now compatible with modern systems using `systemd-resolved`.
 
 ### Fixed
-- Fixed an issue where Python dependencies were not installed correctly on non-Debian systems.
+- Fixed an issue where selector dependencies were not installed correctly on non-Debian systems.
 - Fixed a crash that occurred when the `/etc/docker/daemon.json` file did not exist on a fresh installation.
 
 ## [1.2.0] - 2024-10-17
@@ -21,7 +31,7 @@
 
 ### Fixed
 - JSON configuration format consistency between `dns.json` and `docker.json`
-- Renamed `mirror_selector.py` to `docker_selector.py`
+- Renamed the mirror selector script for clearer Docker registry usage
 - Updated all script references
 
 ### Changed

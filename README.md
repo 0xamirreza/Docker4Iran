@@ -15,9 +15,8 @@
 <div align="center">
 
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![Bash](https://img.shields.io/badge/bash-%23121011.svg?style=for-the-badge&logo=gnu-bash&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.3.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.4.0-blue?style=for-the-badge)
 
 </div>
 
@@ -30,6 +29,7 @@
 - **ابزار مدیریت تعاملی** (Docker Management Tool - 0xDocker)
 - **پیکربندی DNS** برای بهبود عملکرد دریافت داکر و رفع تحریم ها
 - **انتخاب میرور رجیستری داکر** برای بهینه‌سازی دریافت ایمیج ها و رفع تحریم ها
+- **کاملاً تک‌فایلی و Bash-based** بدون نیاز به اسکریپت یا وابستگی پایتون
 
 ### 💻 سیستم‌عامل‌های پشتیبانی شده
 
@@ -121,10 +121,7 @@ sudo /home/$USER/.local/bin/0xdocker
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
-## ✅ درآینده
 
-- [ ] 🇮🇷 افزودن قابلیت انتخاب هوشمند میرور ریپوزیتوری برای توزیع‌های داخل ایران (Smart Mirror)  
-- [ ] 🐧 پشتیبانی از انتخاب خودکار سیستم‌عامل‌های مختلف لینوکسی (Cross-Distribution)  
 
 ### 📄 مجوز
 
