@@ -52,8 +52,8 @@ function show_header() {
     echo "                  Author: 0xAmirreza"
     echo "                     License: MIT"
     echo "============================================================"
-    if [ -f "VERSION" ]; then
-        VERSION=$(cat VERSION)
+    if [ -f "$SCRIPT_DIR/VERSION" ]; then
+        VERSION=$(cat "$SCRIPT_DIR/VERSION")
         echo "                    Version: $VERSION"
     fi
     echo "------------------------------------------------------------"
@@ -68,14 +68,46 @@ function extract_embedded_script() {
     chmod +x "$output_file"
 }
 
+function run_self_as_root() {
+    local self_path="$0"
+    local temporary_script=""
+    local exit_code
+
+    if [[ "$self_path" == /dev/fd/* || "$self_path" == /proc/self/fd/* || ! -f "$self_path" ]]; then
+        temporary_script="$(mktemp /tmp/docker4iran-main.XXXXXX.sh)"
+        cp "$self_path" "$temporary_script"
+        chmod +x "$temporary_script"
+        self_path="$temporary_script"
+    fi
+
+    if [ "$(id -u)" -eq 0 ]; then
+        if "$self_path" "$@"; then
+            exit_code=0
+        else
+            exit_code=$?
+        fi
+    elif sudo "$self_path" "$@"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+
+    [ -n "$temporary_script" ] && rm -f "$temporary_script"
+    return "$exit_code"
+}
+
 function run_embedded_selector() {
     local selector_mode="$1"
     local selector_script
 
     selector_script="$(mktemp /tmp/docker4iran-selector.XXXXXX.sh)"
     extract_embedded_script "SELECTORS_SH" "$selector_script"
-    DOCKER4IRAN_SCRIPT_DIR="$SCRIPT_DIR" bash "$selector_script" "$selector_mode"
-    local exit_code=$?
+    local exit_code
+    if DOCKER4IRAN_SCRIPT_DIR="$SCRIPT_DIR" bash "$selector_script" "$selector_mode"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
     rm -f "$selector_script"
     return "$exit_code"
 }
@@ -85,8 +117,12 @@ function run_embedded_0xdocker() {
 
     management_script="$(mktemp /tmp/docker4iran-0xdocker.XXXXXX.sh)"
     extract_embedded_script "ZEROXDOCKER_SH" "$management_script"
-    DOCKER4IRAN_EMBEDDED=1 bash "$management_script" "$@"
-    local exit_code=$?
+    local exit_code
+    if DOCKER4IRAN_EMBEDDED=1 bash "$management_script" "$@"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
     rm -f "$management_script"
     return "$exit_code"
 }
@@ -128,9 +164,12 @@ function check_requirements() {
     # Check if running as root or with sudo access
     if [ "$(id -u)" -eq 0 ]; then
         log_warning "Running as root user"
-    elif ! sudo -n true 2>/dev/null; then
+    elif ! command -v sudo >/dev/null 2>&1; then
         log_error "This script requires sudo privileges"
-        echo "Please run with sudo or ensure your user has sudo access"
+        echo "Please install sudo or run this script as root"
+        exit 1
+    elif ! sudo -v; then
+        log_error "Unable to obtain sudo privileges"
         exit 1
     fi
     
@@ -139,6 +178,7 @@ function check_requirements() {
 
 function optimize_dns() {
     log_info "Starting DNS optimization process..."
+    DNS_OPTIMIZED=0
     
     cd "$SCRIPT_DIR"
     
@@ -148,7 +188,15 @@ function optimize_dns() {
     echo "This will test each DNS server's ability to connect to Docker download servers."
     echo ""
     
+    local selector_status
     if run_embedded_selector dns; then
+        selector_status=0
+    else
+        selector_status=$?
+    fi
+
+    if [ "$selector_status" -eq 0 ]; then
+        DNS_OPTIMIZED=1
         log_success "DNS optimization completed successfully"
         
         # Test Docker connectivity with selected DNS
@@ -160,6 +208,9 @@ function optimize_dns() {
             log_warning "Docker connectivity test failed, but continuing..."
             return 0
         fi
+    elif [ "$selector_status" -eq 2 ]; then
+        log_warning "DNS configuration was skipped"
+        return 0
     else
         log_warning "DNS optimization failed or was skipped"
         log_info "Continuing with system default DNS..."
@@ -195,16 +246,20 @@ function optimize_docker_registry() {
     echo "This will test all available mirrors and let you choose the best one..."
     echo ""
     
-    # Run the registry selector
-    if run_embedded_selector registry; then
+    # Run the registry selector with root privileges when configuration is needed
+    if { [ "$(id -u)" -eq 0 ] && run_embedded_selector registry; } ||
+       { [ "$(id -u)" -ne 0 ] && run_self_as_root registry; }; then
         log_success "Docker registry mirror optimization completed!"
+        echo ""
+        log_info "Registry optimization process finished"
+        return 0
     else
         log_warning "Registry mirror optimization failed or was skipped"
         log_info "You can run it manually later with: sudo ./main.sh registry"
+        echo ""
+        log_info "Registry optimization process finished"
+        return 1
     fi
-    
-    echo ""
-    log_info "Registry optimization process finished"
 }
 
 function run_docker_mirror_registry() {
@@ -231,7 +286,7 @@ function run_docker_mirror_registry() {
     echo "This will test all available Docker registry mirrors and let you choose the best one."
     echo ""
     
-    if sudo "$0" registry; then
+    if run_self_as_root registry; then
         log_success "Docker Mirror Registry configuration completed!"
     else
         log_warning "Docker Mirror Registry configuration failed or was cancelled"
@@ -246,11 +301,34 @@ function install_docker() {
     # Ensure we have sudo privileges throughout the script
     if [ "$(id -u)" -ne 0 ]; then
         log_info "Re-launching Docker installation with sudo..."
-        exec sudo "$0" install_docker_as_root
-        exit $?
+        run_self_as_root install_docker_as_root
+        return $?
     fi
     
     install_docker_as_root
+}
+
+function grant_docker_access() {
+    local target_user="${SUDO_USER:-}"
+
+    if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
+        return 0
+    fi
+
+    if ! getent group docker >/dev/null 2>&1; then
+        groupadd docker
+    fi
+
+    log_info "Granting Docker access to user $target_user..."
+    usermod -aG docker "$target_user"
+
+    if getent group docker | cut -d: -f4 | tr ',' '\n' | grep -Fxq "$target_user"; then
+        log_success "User $target_user has been added to the docker group"
+        log_warning "Existing terminals may need 'newgrp docker' once; 0xdocker handles this automatically."
+    else
+        log_error "Could not add user $target_user to the docker group"
+        return 1
+    fi
 }
 
 function install_docker_as_root() {
@@ -294,18 +372,13 @@ function install_docker_as_root() {
         systemctl start docker
         systemctl enable docker
 
-        if [ "$SUDO_USER" ]; then
-            log_info "Adding user $SUDO_USER to docker group..."
-            usermod -aG docker "$SUDO_USER"
-            log_warning "Please log out and back in for group changes to take effect"
-        fi
+        grant_docker_access
 
         log_info "Verifying Docker installation..."
         if docker --version && docker compose version; then
             log_success "Docker installation completed successfully!"
             docker --version
             docker compose version
-            optimize_docker_registry
         else
             log_error "Docker installation verification failed"
             exit 1
@@ -339,68 +412,31 @@ function install_docker_as_root() {
 
     log_info "Detected $DISTRO $DISTRO_VERSION ($DISTRO_CODENAME)"
 
-    # Validate codename for the distribution
-    if [ "$DISTRO" = "ubuntu" ]; then
-        VALID_CODENAMES="bionic focal jammy lunar mantic noble oracular plucky"
-        if [[ ! " $VALID_CODENAMES " =~ " $DISTRO_CODENAME " ]]; then
-            log_warning "Unrecognized Ubuntu codename '$DISTRO_CODENAME'"
-            log_info "Using 'noble' (24.04 LTS) as fallback"
-            DISTRO_CODENAME="noble"
-        fi
-    elif [ "$DISTRO" = "debian" ]; then
-        VALID_CODENAMES="stretch buster bullseye bookworm trixie sid"
-        if [[ ! " $VALID_CODENAMES " =~ " $DISTRO_CODENAME " ]]; then
-            log_warning "Unrecognized Debian codename '$DISTRO_CODENAME'"
-            log_info "Using 'bookworm' (12) as fallback"
-            DISTRO_CODENAME="bookworm"
-        fi
-    fi
-
-    # Completely clean up all repository configurations
-    log_info "Cleaning up repository configurations..."
-    mkdir -p /etc/apt/sources.list.d.backup
-    if [ -f /etc/apt/sources.list ]; then
-        cp /etc/apt/sources.list /etc/apt/sources.list.original.backup
-    fi
-
-    # Move all existing source files to backup
-    mv /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d.backup/ 2>/dev/null || true
-    mv /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d.backup/ 2>/dev/null || true
-
-    # Create a clean sources.list based on distribution
-    log_info "Setting up standard $DISTRO repositories for codename: $DISTRO_CODENAME"
-
-    if [ "$DISTRO" = "ubuntu" ]; then
-        cat > /etc/apt/sources.list <<EOF
-deb http://archive.ubuntu.com/ubuntu/ $DISTRO_CODENAME main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu/ $DISTRO_CODENAME-updates main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu/ $DISTRO_CODENAME-backports main restricted universe multiverse
-deb http://security.ubuntu.com/ubuntu/ $DISTRO_CODENAME-security main restricted universe multiverse
-EOF
-    elif [ "$DISTRO" = "debian" ]; then
-        cat > /etc/apt/sources.list <<EOF
-deb http://deb.debian.org/debian $DISTRO_CODENAME main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian $DISTRO_CODENAME-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security $DISTRO_CODENAME-security main contrib non-free non-free-firmware
-EOF
+    if [ -z "$DISTRO_CODENAME" ] || [ "$DISTRO_CODENAME" = "unknown" ]; then
+        log_error "Unable to determine the distribution codename safely."
+        exit 1
     fi
 
     # Update and install prerequisites
     log_info "Updating package lists and installing prerequisites..."
-    apt-get clean
-    rm -rf /var/lib/apt/lists/*
     apt-get update
     apt-get install -y ca-certificates curl gnupg lsb-release
 
     # Add Docker's official GPG key
     log_info "Adding Docker's GPG key..."
+    local docker_gpg_tmp
+    docker_gpg_tmp="$(mktemp)"
     if [ "$DISTRO" = "ubuntu" ]; then
         mkdir -p /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg |
+            gpg --batch --yes --dearmor -o "$docker_gpg_tmp"
     elif [ "$DISTRO" = "debian" ]; then
         install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL https://download.docker.com/linux/debian/gpg |
+            gpg --batch --yes --dearmor -o "$docker_gpg_tmp"
     fi
+    install -m 0644 "$docker_gpg_tmp" /etc/apt/keyrings/docker.gpg
+    rm -f "$docker_gpg_tmp"
     chmod a+r /etc/apt/keyrings/docker.gpg
 
     # Add Docker repository
@@ -421,11 +457,7 @@ EOF
     systemctl enable docker
 
     # Add current user to docker group (if not root)
-    if [ "$SUDO_USER" ]; then
-        log_info "Adding user $SUDO_USER to docker group..."
-        usermod -aG docker "$SUDO_USER"
-        log_warning "Please log out and back in for group changes to take effect"
-    fi
+    grant_docker_access
 
     # Verify installation
     log_info "Verifying Docker installation..."
@@ -434,8 +466,6 @@ EOF
         docker --version
         docker compose version
         
-        # Run registry mirror selector after successful installation
-        optimize_docker_registry
     else
         log_error "Docker installation verification failed"
         exit 1
@@ -469,8 +499,8 @@ function uninstall_docker() {
     log_info "Uninstalling Docker..."
     
     if [ "$(id -u)" -ne 0 ]; then
-        exec sudo "$0" uninstall_docker_as_root
-        exit $?
+        run_self_as_root uninstall_docker_as_root
+        return $?
     fi
     
     uninstall_docker_as_root
@@ -594,7 +624,7 @@ function install_0xdocker_service() {
     local ACTUAL_USER="${SUDO_USER:-$USER}"
     local USER_HOME=$(eval echo ~$ACTUAL_USER)
     local EXECUTABLE="$USER_HOME/.local/bin/0xdocker"
-    
+
     # First ensure 0xdocker is installed
     if [ ! -f "$EXECUTABLE" ]; then
         log_info "0xdocker not found at $EXECUTABLE. Installing first..."
@@ -609,9 +639,9 @@ function install_0xdocker_service() {
     
     # Check if running as root (required for systemd service installation)
     if [ "$(id -u)" -ne 0 ]; then
-        log_error "Root privileges required to install system service"
-        exec sudo "$0" install_0xdocker_service_as_root
-        exit $?
+        log_info "Requesting root privileges to install the system service..."
+        run_self_as_root install_0xdocker_service_as_root "$ACTUAL_USER"
+        return $?
     fi
     
     install_0xdocker_service_as_root
@@ -620,8 +650,18 @@ function install_0xdocker_service() {
 function install_0xdocker_service_as_root() {
     local SERVICE_NAME="0xdocker"
     local SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-    local USER_HOME=$(eval echo ~$SUDO_USER)
+    local SERVICE_USER="${1:-${SUDO_USER:-root}}"
+    local USER_HOME
+    USER_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+    if [ -z "$USER_HOME" ]; then
+        log_error "Unable to determine home directory for user: $SERVICE_USER"
+        return 1
+    fi
     local EXECUTABLE="$USER_HOME/.local/bin/0xdocker"
+
+    if [ ! -f "$EXECUTABLE" ] && [ "$SERVICE_USER" = "root" ]; then
+        install_0xdocker_executable
+    fi
     
     # Verify the executable exists
     if [ ! -f "$EXECUTABLE" ]; then
@@ -641,8 +681,9 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=$SUDO_USER
-Group=$SUDO_USER
+User=$SERVICE_USER
+Group=$(id -gn "$SERVICE_USER")
+SupplementaryGroups=docker
 ExecStart=$EXECUTABLE --daemon
 Restart=always
 RestartSec=10
@@ -700,9 +741,9 @@ function uninstall_0xdocker_service() {
     
     # Check if running as root
     if [ "$(id -u)" -ne 0 ]; then
-        log_error "Root privileges required to uninstall system service"
-        exec sudo "$0" uninstall_0xdocker_service_as_root
-        exit $?
+        log_info "Requesting root privileges to uninstall the system service..."
+        run_self_as_root uninstall_0xdocker_service_as_root
+        return $?
     fi
     
     uninstall_0xdocker_service_as_root
@@ -763,14 +804,25 @@ function show_menu() {
                 optimize_dns
                 install_docker
                 install_0xdocker_service
-                optimize_docker_registry
+                local registry_configured=1
+                if ! optimize_docker_registry; then
+                    registry_configured=0
+                fi
                 log_success "Full installation completed!"
                 echo ""
                 log_info "Your system now has:"
-                echo "  ✅ Optimized DNS settings"
+                if [ "${DNS_OPTIMIZED:-0}" -eq 1 ]; then
+                    echo "  ✅ Optimized DNS settings"
+                else
+                    echo "  ⚠️  DNS settings were not changed"
+                fi
                 echo "  ✅ Docker installed and running"
                 echo "  ✅ 0xDocker management service installed and running"
-                echo "  ✅ Docker registry mirror optimized"
+                if [ "$registry_configured" -eq 1 ]; then
+                    echo "  ✅ Docker registry mirror optimized"
+                else
+                    echo "  ⚠️  Docker registry mirror was not changed"
+                fi
                 echo ""
                 log_info "You can manage the 0xDocker service with:"
                 echo "  • Check status: sudo systemctl status 0xdocker"
@@ -856,7 +908,7 @@ elif [ "$1" = "uninstall_docker_as_root" ]; then
     uninstall_docker_as_root
     exit $?
 elif [ "$1" = "install_0xdocker_service_as_root" ]; then
-    install_0xdocker_service_as_root
+    install_0xdocker_service_as_root "$2"
     exit $?
 elif [ "$1" = "uninstall_0xdocker_service_as_root" ]; then
     uninstall_0xdocker_service_as_root
@@ -926,8 +978,20 @@ function json_value() {
 
 function load_dns_servers() {
     if [ ! -f "$DNS_CONFIG_PATH" ]; then
-        log_error "DNS config file not found: $DNS_CONFIG_PATH"
-        return 1
+        cat <<'EOF'
+Shecan|178.22.122.100|185.51.200.2
+403|10.202.10.202|10.202.10.102
+Begzar|185.55.226.26|185.55.225.25
+Radar|10.202.10.10|10.202.10.11
+DNSPro|87.107.110.109|87.107.110.110
+DynX|10.70.95.150|10.70.95.162
+Electro|78.157.42.100|78.157.42.101
+Shelter|94.103.125.157|94.103.125.158
+Beshkan|181.41.194.177|181.41.194.186
+Pishgaman|5.202.100.100|5.202.100.101
+Shatel|85.15.1.14|85.15.1.15
+EOF
+        return 0
     fi
 
     awk '
@@ -956,8 +1020,20 @@ function load_dns_servers() {
 
 function load_registry_mirrors() {
     if [ ! -f "$REGISTRY_CONFIG_PATH" ]; then
-        log_error "Registry config file not found: $REGISTRY_CONFIG_PATH"
-        return 1
+        cat <<'EOF'
+Arvancloud|https://docker.arvancloud.ir|true|Arvancloud Docker registry mirror
+Manageit|https://docker.manageit.ir|false|Manageit Docker registry mirror
+Docker.ir|https://registry.docker.ir|false|Docker.ir registry mirror
+Kernel.ir|https://docker.kernel.ir|false|Kernel.ir Docker registry mirror
+Docker.host|https://docker.host:5000|false|Docker.host registry mirror
+Mobinhost|https://docker.mobinhost.com|true|Mobinhost Docker registry mirror
+Runflare|https://mirror-docker.runflare.com|false|Runflare Docker registry mirror
+Jamko|https://docker.jamko.ir|false|Jamko Docker registry mirror
+Focker|https://focker.ir|false|Focker Docker registry mirror
+Iranserver|https://docker.iranserver.com|false|Iranserver Docker registry mirror
+Haiocloud|https://docker.haiocloud.com|false|Haiocloud Docker registry mirror
+EOF
+        return 0
     fi
 
     awk '
@@ -1195,6 +1271,8 @@ function run_dns_selector() {
         log_success "DNS settings applied successfully."
     else
         log_warning "DNS settings not applied. Using system defaults."
+        rm -f "$results_file" "$working_file"
+        return 2
     fi
 
     rm -f "$results_file" "$working_file"
@@ -1216,12 +1294,12 @@ function test_registry_endpoint() {
     local status
     local response_time
 
-    output="$(curl -k -L -s -o /dev/null -w "%{http_code}|%{time_total}" --max-time 15 "$url$path" 2>/dev/null || true)"
+    output="$(curl -L -s -o /dev/null -w "%{http_code}|%{time_total}" --max-time 15 "$url$path" 2>/dev/null || true)"
     status="${output%%|*}"
     response_time="${output##*|}"
 
     case "$status" in
-        200|401|404)
+        200|401)
             echo "1|$response_time"
             ;;
         *)
@@ -1282,38 +1360,59 @@ function run_registry_tests() {
 function write_daemon_json() {
     local mirror="$1"
     local insecure="$2"
-    local backup_file
+    local backup_file="$3"
 
     sudo mkdir -p "$(dirname "$DAEMON_JSON_PATH")"
     if [ -f "$DAEMON_JSON_PATH" ]; then
-        backup_file="${DAEMON_JSON_PATH}.docker4iran.$(date +%Y%m%d%H%M%S).backup"
         sudo cp "$DAEMON_JSON_PATH" "$backup_file"
-        log_warning "Existing daemon.json backed up to $backup_file"
     fi
 
     local tmp_file
     tmp_file="$(mktemp)"
-    if [ "$insecure" = "true" ]; then
-        cat > "$tmp_file" <<EOF
-{
-  "registry-mirrors": [
-    "$mirror"
-  ],
-  "insecure-registries": [
-    "$mirror"
-  ]
-}
-EOF
-    else
-        cat > "$tmp_file" <<EOF
-{
-  "registry-mirrors": [
-    "$mirror"
-  ]
-}
-EOF
+    if ! ensure_command python3 python3 python >/dev/null; then
+        rm -f "$tmp_file"
+        return 1
     fi
 
+    if ! python3 - "$DAEMON_JSON_PATH" "$mirror" "$insecure" > "$tmp_file" <<'PYTHON'
+import json
+import os
+import sys
+from urllib.parse import urlparse
+
+path, mirror, insecure = sys.argv[1:]
+config = {}
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as config_file:
+        config = json.load(config_file)
+if not isinstance(config, dict):
+    raise ValueError("daemon.json must contain a JSON object")
+
+config["registry-mirrors"] = [mirror]
+if insecure == "true":
+    parsed = urlparse(mirror if "://" in mirror else f"//{mirror}", scheme="")
+    registry_host = parsed.netloc or parsed.path.split("/", 1)[0]
+    insecure_registries = config.get("insecure-registries", [])
+    if not isinstance(insecure_registries, list):
+        insecure_registries = []
+    config["insecure-registries"] = list(dict.fromkeys(
+        [registry for registry in insecure_registries if registry] + [registry_host]
+    ))
+
+json.dump(config, sys.stdout, indent=2)
+sys.stdout.write("\n")
+PYTHON
+    then
+        log_error "Could not merge the Docker daemon configuration."
+        rm -f "$tmp_file"
+        return 1
+    fi
+
+    if ! python3 -m json.tool "$tmp_file" >/dev/null 2>&1; then
+        log_error "Generated Docker daemon configuration is invalid."
+        rm -f "$tmp_file"
+        return 1
+    fi
     sudo cp "$tmp_file" "$DAEMON_JSON_PATH"
     rm -f "$tmp_file"
 }
@@ -1322,14 +1421,33 @@ function configure_registry_mirror() {
     local name="$1"
     local mirror="$2"
     local insecure="$3"
+    local backup_file="${DAEMON_JSON_PATH}.docker4iran.$(date +%Y%m%d%H%M%S).backup"
+    local had_existing_config=0
 
     if [ "$(id -u)" -ne 0 ]; then
         log_error "This action requires root privileges. Run: sudo ./main.sh registry"
         return 1
     fi
 
-    write_daemon_json "$mirror" "$insecure"
-    systemctl restart docker
+    if [ -f "$DAEMON_JSON_PATH" ]; then
+        had_existing_config=1
+    fi
+
+    if ! write_daemon_json "$mirror" "$insecure" "$backup_file"; then
+        return 1
+    fi
+    [ "$had_existing_config" -eq 1 ] && log_warning "Existing daemon.json backed up to $backup_file"
+
+    if ! systemctl restart docker; then
+        log_error "Docker restart failed. Restoring the previous configuration..."
+        if [ "$had_existing_config" -eq 1 ]; then
+            sudo cp "$backup_file" "$DAEMON_JSON_PATH"
+        else
+            sudo rm -f "$DAEMON_JSON_PATH"
+        fi
+        systemctl restart docker || true
+        return 1
+    fi
     sleep 5
 
     if docker info >/dev/null 2>&1; then
@@ -1339,6 +1457,13 @@ function configure_registry_mirror() {
     fi
 
     log_error "Docker failed to start properly after registry configuration."
+    log_warning "Restoring the previous Docker daemon configuration..."
+    if [ "$had_existing_config" -eq 1 ]; then
+        sudo cp "$backup_file" "$DAEMON_JSON_PATH"
+    else
+        sudo rm -f "$DAEMON_JSON_PATH"
+    fi
+    systemctl restart docker || true
     return 1
 }
 
@@ -1463,6 +1588,8 @@ set -e
 INSTALL_PATH="$HOME/.local/bin"
 TARGET="$INSTALL_PATH/0xdocker"
 LOG_FILE="$HOME/.local/share/0xdocker.log"
+DOCKER_BINARY=""
+DOCKER_USE_SUDO=0
 
 # Colors for output
 RED='\033[0;31m'
@@ -1517,6 +1644,58 @@ fi
 # =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
+function docker() {
+    if [ "$DOCKER_USE_SUDO" -eq 1 ]; then
+        sudo "$DOCKER_BINARY" "$@"
+    else
+        command "$DOCKER_BINARY" "$@"
+    fi
+}
+
+function docker_service_is_active() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet docker
+    elif command -v service >/dev/null 2>&1; then
+        service docker status >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+function initialize_docker_access() {
+    DOCKER_BINARY="$(type -P docker || true)"
+    if [ -z "$DOCKER_BINARY" ]; then
+        log_error "Docker is not installed on this system!"
+        echo "Please install Docker first before using this management tool."
+        exit 1
+    fi
+
+    if command "$DOCKER_BINARY" info >/dev/null 2>&1; then
+        DOCKER_USE_SUDO=0
+        return 0
+    fi
+
+    if docker_service_is_active; then
+        log_warning "Docker is running, but the current session cannot access its socket."
+        if command -v sudo >/dev/null 2>&1 && sudo -v &&
+           sudo "$DOCKER_BINARY" info >/dev/null 2>&1; then
+            DOCKER_USE_SUDO=1
+            log_success "0xDocker will use sudo for Docker commands in this session."
+            log_info "Open a new terminal later to use Docker without sudo."
+            return 0
+        fi
+
+        log_error "Docker permission denied for user $USER."
+        echo "Run: sudo usermod -aG docker $USER"
+        echo "Then open a new terminal or run: newgrp docker"
+        return 1
+    fi
+
+    log_error "Docker service is not running."
+    echo "Run: sudo systemctl start docker"
+    return 1
+}
+
 function check_docker_status() {
     if docker info >/dev/null 2>&1; then
         echo -e "\e[32m✅ Docker is running\e[0m"
@@ -1552,7 +1731,7 @@ function show_header() {
 }
 
 function check_docker_installed() {
-    if ! command -v docker &> /dev/null; then
+    if [ -z "$DOCKER_BINARY" ]; then
         log_error "Docker is not installed on this system!"
         echo "Please install Docker first before using this management tool."
         echo "Visit https://docs.docker.com/get-docker/ for installation instructions."
@@ -1577,7 +1756,18 @@ function show_images() {
     echo -e "\n=== Docker Images ==="
     if docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}" 2>/dev/null; then
         echo -e "\nTotal images: $(docker images -q | wc -l)"
-        echo "Total size: $(docker images --format "{{.Size}}" | sed 's/[^0-9.]*//g' | awk '{sum+=$1} END {print sum "MB"}' 2>/dev/null || echo "Unknown")"
+        local image_size
+        image_size="$(docker system df --format '{{json .}}' 2>/dev/null | awk -F'"' '
+            /"Type":"Images"/ {
+                for (index = 1; index <= NF; index++) {
+                    if ($index == "Size") {
+                        print $(index + 2)
+                        exit
+                    }
+                }
+            }
+        ')"
+        echo "Total size: ${image_size:-Unknown}"
     else
         log_warning "No images found or Docker not accessible"
     fi
@@ -1705,17 +1895,21 @@ function container_management() {
 
 function view_live_logs() {
     local container_name="$1"
-    local extra_flags="$2"  # For timestamps (-t)
+    local extra_flags="${2:-}"
     
     echo -e "\n📋 Starting live logs for container: $container_name"
     echo "Press Ctrl+C to stop following logs and return to menu..."
     echo "=========================================="
     
     # Set trap to handle Ctrl+C gracefully
-    trap 'echo -e "\n🛑 Stopping live logs..."; return 0' INT
+    trap 'echo -e "\n🛑 Stopping live logs..."' INT
     
     # Run docker logs with the provided flags
-    docker logs -f $extra_flags "$container_name"
+    if [ -n "$extra_flags" ]; then
+        docker logs -f "$extra_flags" "$container_name" || true
+    else
+        docker logs -f "$container_name" || true
+    fi
     
     # Remove trap after logs finish
     trap - INT
@@ -2111,13 +2305,13 @@ function daemon_mode() {
 
 # Handle command line arguments
 if [ "$1" = "--daemon" ]; then
-    check_docker_installed
+    initialize_docker_access
     daemon_mode
     exit 0
 fi
 
 # Check Docker installation on startup
-check_docker_installed
+initialize_docker_access
 
 # Initialize log file
 echo "=== 0xDocker Management Session Started: $(date) ===" >> "$LOG_FILE"

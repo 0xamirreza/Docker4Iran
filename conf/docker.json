@@ -38,7 +38,7 @@
     "Jamko": {
       "mirror": "https://docker.jamko.ir",
       "insecure": false,
-      "description": "Focker Docker registry mirror"
+      "description": "Jamko Docker registry mirror"
     },
     "Focker": {
       "mirror": "https://focker.ir",

@@ -16,7 +16,7 @@
 
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![Bash](https://img.shields.io/badge/bash-%23121011.svg?style=for-the-badge&logo=gnu-bash&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.4.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.5.0-blue?style=for-the-badge)
 
 </div>
 
@@ -29,7 +29,7 @@
 - **ابزار مدیریت تعاملی** (Docker Management Tool - 0xDocker)
 - **پیکربندی DNS** برای بهبود عملکرد دریافت داکر و رفع تحریم ها
 - **انتخاب میرور رجیستری داکر** برای بهینه‌سازی دریافت ایمیج ها و رفع تحریم ها
-- **کاملاً تک‌فایلی و Bash-based** بدون نیاز به اسکریپت یا وابستگی پایتون
+- **کاملاً تک‌فایلی و Bash-based**؛ در صورت نیاز، `python3` برای ادغام امن تنظیمات Docker به‌صورت خودکار نصب می‌شود
 
 ### 💻 سیستم‌عامل‌های پشتیبانی شده
 
@@ -108,10 +108,21 @@ bash <(curl -Ls https://raw.githubusercontent.com/0xamirreza/Docker4Iran/refs/he
 
 #### مشکلات دسترسی
 ```bash
-# اگر خطای عدم مجوز برای 0xdocker دریافت کردید :
+# اگر Docker را تازه نصب کرده‌اید، عضویت گروه را در همین ترمینال فعال کنید:
+newgrp docker
+
+# برای اطمینان از عضویت کاربر در گروه Docker:
+sudo usermod -aG docker "$USER"
+
+# سپس یک ترمینال جدید باز کنید یا دوباره وارد حساب کاربری شوید.
+
+# اگر خطای عدم مجوز برای خود فایل 0xdocker دریافت کردید:
 chmod +x ~/.local/bin/0xdocker
 
-# برای استفاده از sudo :
+# 0xDocker در sessionهای قدیمی، دسترسی Docker را تشخیص داده
+# و تا زمان باز شدن ترمینال جدید به‌صورت خودکار از sudo استفاده می‌کند.
+# برای بررسی دستی:
+docker ps
 sudo /home/$USER/.local/bin/0xdocker
 ```
 
