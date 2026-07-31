@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.1] - 2026-07-31
+
+### Fixed
+- Removed the redundant image prune step from 0xDocker full cleanup, which could appear to hang before the main system cleanup.
+- Added explicit cleanup failure handling and clearer progress messages.
+
 ## [1.4.0] - 2026-06-02
 
 ### Changed

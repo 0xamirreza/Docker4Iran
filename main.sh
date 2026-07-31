@@ -2101,20 +2101,23 @@ function full_cleanup() {
     read -p "Are you sure you want to continue? Type 'yes' to continue: " confirm
     if [[ "$confirm" == "yes" ]]; then
         log_info "Starting full Docker cleanup..."
-        
-        echo -e "\n🧽 Removing dangling images..."
-        docker image prune -f
 
-        echo -e "\n🧹 Pruning unused Docker system data..."
-        docker system prune -a --volumes -f
+        echo -e "\n🧹 Pruning unused containers, images, networks, volumes, and build cache..."
+        echo "This may take several minutes on systems with lots of Docker data."
+        if ! docker system prune -a --volumes -f; then
+            log_error "Docker system cleanup failed."
+            return 1
+        fi
 
-        echo -e "\n🔨 Removing builder cache..."
-        docker builder prune -a -f
+        echo -e "\n🔨 Removing any remaining builder cache..."
+        if ! docker builder prune -a -f; then
+            log_warning "System cleanup completed, but some builder cache could not be removed."
+        fi
 
         log_success "Full Docker cleanup completed."
         
-        echo -e "\nSpace reclaimed:"
-        docker system df
+        echo -e "\nCurrent Docker disk usage:"
+        docker system df || log_warning "Could not retrieve Docker disk usage."
     else
         log_info "Operation cancelled."
     fi
